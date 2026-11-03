@@ -1,0 +1,32 @@
+{
+  "cli": {
+    "version": ">= 17.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "downloads-validation": {
+      "extends": "preview",
+      "android": {
+        "gradleCommand": ":expo-music-downloads:testDebugUnitTest :app:assembleRelease"
+      }
+    }
+  }
+}

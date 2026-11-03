@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { readFile } from "node:fs/promises";
+import ts from "typescript";
+import { Buffer } from "node:buffer";
+import { groupName } from "../src/lib/organization-model.ts";
+const source = await readFile(new URL("../src/lib/discovery-metadata.ts", import.meta.url), "utf8");
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace('"./metadata-model.ts"', JSON.stringify(new URL("../src/lib/metadata-model.ts", import.meta.url).href));
+const { discoveryIdentity, discoveryDue, contextMatches, contextQuery, matchRecording, genreKey } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const track = { id: "a", title: "Canção", artist: "Artista", uri: "file:///a", duration: 180 };
+const now = Date.now();
+const mapped = { ...track, discovery: { identity: discoveryIdentity(track), genres: ["brazilian funk"], year: 2019, source: "MusicBrainz", checkedAt: now, outcome: "found" } };
+test("metadata cache expires by outcome and invalidates corrected identity", () => {
+  assert.equal(discoveryDue(track, now), true);
+  assert.equal(discoveryDue(mapped, now), false);
+  assert.equal(discoveryDue(mapped, now + 91 * 86400000), true);
+  assert.equal(discoveryDue({ ...mapped, title: "Outra" }, now), true);
+  const failed = { ...mapped, discovery: { ...mapped.discovery, outcome: "error" } };
+  assert.equal(discoveryDue(failed, now + 3599999), false);
+  assert.equal(discoveryDue(failed, now + 3600001), true);
+  assert.equal(discoveryDue({ ...mapped, discovery: { ...mapped.discovery, outcome: "missing" } }, now + 8 * 86400000), true);
+});
+test("genre aliases and known years filter groups without assigning unknown genres", () => {
+  assert.equal(genreKey("Funk carioca"), genreKey("Funk brasileiro"));
+  assert.equal(contextMatches(mapped, { genre: "Funk brasileiro", year: 2019 }), true);
+  assert.equal(contextMatches(mapped, { genre: "Rock" }), false);
+  assert.equal(contextMatches(track, { genre: "Rock" }), false);
+  assert.equal(contextMatches(mapped, { year: 2020 }), false);
+  assert.equal(contextQuery({ artist: "Artista", genre: "Rock", year: 2019 }), "Artista Rock 2019 música");
+  assert.equal(groupName(mapped, "genre"), "brazilian funk");
+  assert.equal(groupName(mapped, "year"), "2019");
+  assert.equal(groupName(track, "genre"), "Gênero não identificado");
+});
+test("identity matching rejects unrelated artists, versions and weak matches", () => {
+  const valid = { id: "valid", title: "Cancao", score: 100, length: 180000, "artist-credit": [{ name: "Artista" }] };
+  assert.equal(matchRecording(track, [valid]).id, "valid");
+  assert.equal(matchRecording(track, [valid, { ...valid, id: "other-recording", "first-release-date": "2020" }]), undefined);
+  assert.equal(matchRecording({ ...track, album: "Disco" }, [valid, { ...valid, id: "album-recording", releases: [{ title: "Disco" }] }]).id, "album-recording");
+  for (const patch of [{ title: "Outra" }, { title: "Canção (ao vivo)" }, { score: 70 }, { length: 200000 }, { "artist-credit": [{ name: "Outro" }] }]) assert.equal(matchRecording(track, [{ ...valid, ...patch }]), undefined);
+  assert.equal(matchRecording({ ...track, artist: "Arquivo local" }, [valid]), undefined);
+  assert.equal(matchRecording({ ...track, artist: "Artista, Outro" }, [{ ...valid, "artist-credit": [{ name: "Artista" }, { name: "Outro" }] }]).id, "valid");
+});

@@ -1,0 +1,7 @@
+{
+  "name": "expo-audio-analysis",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/AudioAnalysisModule.ts",
+  "types": "src/AudioAnalysisModule.ts"
+}
